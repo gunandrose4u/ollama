@@ -55,7 +55,7 @@ func New(workDir, model string, adapters, projectors []string, opts api.Options)
 			return nil, err
 		}
 
-		return newLlmServer(info, extmodel, adapters, projectors, opts)
+		return newLlmServer(info, workDir, extmodel, adapters, projectors, opts)
 	}
 
 	if opts.NumCtx > int(ggml.NumCtx()) {
@@ -213,7 +213,7 @@ func extractOrtModel(model string, extmodel string) error {
 	return nil
 }
 
-func newLlmServer(gpuInfo gpu.GpuInfo, workDir, model string, adapters, projectors []string, opts api.Options) (LLM, error) {
+func newLlmServer(gpuInfo gpu.GpuInfo, model string, adapters, projectors []string, opts api.Options) (LLM, error) {
 	dynLibs := getDynLibs(gpuInfo)
 
 	// Check to see if the user has requested a specific library instead of auto-detecting
