@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -117,6 +118,9 @@ func (c *containerLORA) Decode(rso *readSeekOffset) (model, error) {
 	return nil, nil
 }
 
+type containerORT struct {
+}
+
 const (
 	// Magic constant for `ggml` files (unversioned).
 	FILE_MAGIC_GGML = 0x67676d6c
@@ -129,6 +133,7 @@ const (
 	// Magic constant for `gguf` files (versioned, gguf)
 	FILE_MAGIC_GGUF_LE = 0x46554747
 	FILE_MAGIC_GGUF_BE = 0x47475546
+	FILE_MAGIC_ORT     = 0x04034B50
 )
 
 var ErrUnsupportedFormat = errors.New("unsupported model format")
@@ -151,7 +156,10 @@ func DecodeGGML(r io.ReadSeeker) (*GGML, error) {
 		c = &containerGGUF{bo: binary.LittleEndian}
 	case FILE_MAGIC_GGUF_BE:
 		c = &containerGGUF{bo: binary.BigEndian}
+	case FILE_MAGIC_ORT:
+		c = &containerORT{}
 	default:
+		fmt.Printf("invalid file magic: %X\n", magic)
 		return nil, errors.New("invalid file magic")
 	}
 

@@ -466,7 +466,9 @@ func CreateModel(ctx context.Context, name, modelFileDir string, commands []pars
 				c.Args = blobPath
 			}
 
-			bin, err := os.Open(realpath(modelFileDir, c.Args))
+			modelAbsPath := realpath(modelFileDir, c.Args)
+			bin, err := os.Open(modelAbsPath)
+			fn(api.ProgressResponse{Status: "jozh modelAbsPath: " + modelAbsPath})
 			if err != nil {
 				// not a file on disk so must be a model reference
 				modelpath := ParseModelPath(c.Args)
@@ -822,6 +824,13 @@ func deleteUnusedLayers(skipModelPath *ModelPath, deleteMap map[string]struct{},
 			continue
 		}
 		if !dryRun {
+			slog.Info(fmt.Sprintf("Rm file '%s'", fp))
+			ortfp := strings.Replace(fp, "blobs", "ort_cache", 1)
+			err := os.RemoveAll(ortfp)
+			if err != nil {
+				slog.Info(fmt.Sprintf("couldn't remove directory. please remove directory manually '%s': %v", ortfp, err))
+			}
+
 			if err := os.Remove(fp); err != nil {
 				slog.Info(fmt.Sprintf("couldn't remove file '%s': %v", fp, err))
 				continue
