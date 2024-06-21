@@ -3085,7 +3085,7 @@ int main(int argc, char **argv) {
                                     "data: " +
                                     result.result_json.dump(-1, ' ', false, json::error_handler_t::replace) +
                                     "\n\n";
-                                LOG_VERBOSE("data stream", {
+                                LOG_INFO("data stream", {
                                     { "to_send", str }
                                 });
                                 if (!sink.write(str.c_str(), str.size()))
@@ -3101,7 +3101,7 @@ int main(int argc, char **argv) {
                                     "error: " +
                                     result.result_json.dump(-1, ' ', false, json::error_handler_t::replace) +
                                     "\n\n";
-                                LOG_VERBOSE("data stream", {
+                                LOG_INFO("data stream", {
                                     { "to_send", str }
                                 });
                                 if (!sink.write(str.c_str(), str.size()))

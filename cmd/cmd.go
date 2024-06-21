@@ -103,13 +103,16 @@ func CreateHandler(cmd *cobra.Command, args []string) error {
 			if fi.IsDir() {
 				// this is likely a safetensors or pytorch directory
 				// TODO make this work w/ adapters
-				tempfile, err := tempZipFiles(path)
+				var err error
+				if modelfile.Commands[i].Name == "model" {
+					path, err = tempZipOrtFiles(path)
+				} else {
+					path, err = tempZipFiles(path)
+				}
 				if err != nil {
 					return err
 				}
-				defer os.RemoveAll(tempfile)
-
-				path = tempfile
+				defer os.RemoveAll(path)
 			}
 
 			digest, err := createBlob(cmd, client, path)
@@ -153,6 +156,86 @@ func CreateHandler(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func tempZipOrtFiles(path string) (string, error) {
+	modelAbsPath := path
+	fmt.Println("compress model folder to zip format")
+	modelFolderName := filepath.Base(modelAbsPath)
+	zipCompressedFilePath := filepath.Join(modelAbsPath, modelFolderName+".ort")
+	if _, err := os.Stat(zipCompressedFilePath); err == nil {
+		err := os.Remove(zipCompressedFilePath)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	zipCompressedFile, err := os.Create(zipCompressedFilePath)
+	if err != nil {
+		return "", err
+	}
+	defer zipCompressedFile.Close()
+
+	zipWriter := zip.NewWriter(zipCompressedFile)
+	defer zipWriter.Close()
+
+	err = filepath.Walk(modelAbsPath, func(itemPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() || filepath.Ext(itemPath) == ".zip" {
+			return nil
+		}
+
+		zipInfo, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		zipInfo.Name = filepath.Base(itemPath)
+		zipInfo.Method = zip.Deflate
+
+		w, err := zipWriter.CreateHeader(zipInfo)
+		if err != nil {
+			return err
+		}
+
+		file, err := os.Open(itemPath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(w, file)
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("compress file " + filepath.Base(itemPath) + " to zip format")
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	zipWriter.Close()
+	zipCompressedFile.Close()
+
+	data, err := os.ReadFile(zipCompressedFilePath)
+	if err != nil {
+		return "", err
+	}
+
+	// Magic number of ort package
+	magicNum := append([]byte{0x50, 0x5B, 0x03, 0x05}, data...)
+
+	err = os.WriteFile(zipCompressedFilePath, magicNum, os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+
+	return zipCompressedFilePath, nil
 }
 
 func tempZipFiles(path string) (string, error) {

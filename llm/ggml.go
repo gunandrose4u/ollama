@@ -216,6 +216,9 @@ type container interface {
 	Decode(io.ReadSeeker) (model, error)
 }
 
+type containerORT struct {
+}
+
 const (
 	// Magic constant for `ggml` files (unversioned).
 	FILE_MAGIC_GGML = 0x67676d6c
@@ -228,11 +231,13 @@ const (
 	// Magic constant for `gguf` files (versioned, gguf)
 	FILE_MAGIC_GGUF_LE = 0x46554747
 	FILE_MAGIC_GGUF_BE = 0x47475546
+	FILE_MAGIC_ORT     = 0x05035B50
 )
 
 var ErrUnsupportedFormat = errors.New("unsupported model format")
 
 func DetectGGMLType(b []byte) string {
+	fmt.Printf("%d", binary.LittleEndian.Uint32(b[:4]))
 	switch binary.LittleEndian.Uint32(b[:4]) {
 	case FILE_MAGIC_GGML:
 		return "ggml"
@@ -244,6 +249,8 @@ func DetectGGMLType(b []byte) string {
 		return "ggla"
 	case FILE_MAGIC_GGUF_LE, FILE_MAGIC_GGUF_BE:
 		return "gguf"
+	case FILE_MAGIC_ORT:
+		return "ort"
 	default:
 		return ""
 	}
@@ -265,7 +272,10 @@ func DecodeGGML(rs io.ReadSeeker) (*GGML, int64, error) {
 		c = &containerGGUF{ByteOrder: binary.LittleEndian}
 	case FILE_MAGIC_GGUF_BE:
 		c = &containerGGUF{ByteOrder: binary.BigEndian}
+	case FILE_MAGIC_ORT:
+		c = &containerORT{}
 	default:
+		fmt.Printf("invalid file magic: %X\n", magic)
 		return nil, 0, errors.New("invalid file magic")
 	}
 

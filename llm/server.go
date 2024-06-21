@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"context"
@@ -75,6 +76,68 @@ func LoadModel(model string) (*GGML, error) {
 	return ggml, err
 }
 
+func extractOrtModel(model string, extmodel string) error {
+	zipReader, err := zip.OpenReader(model)
+	if err != nil {
+		return err
+	}
+	defer zipReader.Close()
+
+	if _, err := os.Stat(extmodel); os.IsNotExist(err) {
+		err = os.MkdirAll(extmodel, 0755)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, f := range zipReader.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		dstfilepath := filepath.Join(extmodel, f.Name)
+		slog.Info(fmt.Sprintf("Extracting file %s to %s", f.Name, dstfilepath))
+
+		var dstfile *os.File
+		dstfileinfo, err := os.Stat(dstfilepath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				dstfile, err = os.OpenFile(dstfilepath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+				if err != nil {
+					return err
+				}
+			} else {
+				return err
+			}
+		} else {
+			if dstfileinfo.Size() != int64(f.UncompressedSize64) {
+				os.Remove(dstfilepath)
+				dstfile, err = os.OpenFile(dstfilepath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+				if err != nil {
+					return err
+				}
+			} else {
+				continue
+			}
+		}
+
+		srcfile, err := f.Open()
+		if err != nil {
+			return err
+		}
+
+		_, err = io.Copy(dstfile, srcfile)
+		if err != nil {
+			return err
+		}
+
+		defer dstfile.Close()
+		defer srcfile.Close()
+	}
+
+	return nil
+}
+
 // NewLlamaServer will run a server for the given GPUs
 // The gpu list must be a single family.
 func NewLlamaServer(gpus gpu.GpuInfoList, model string, ggml *GGML, adapters, projectors []string, opts api.Options) (LlamaServer, error) {
@@ -83,13 +146,32 @@ func NewLlamaServer(gpus gpu.GpuInfoList, model string, ggml *GGML, adapters, pr
 	var estimatedVRAM uint64
 	var estimatedTotal uint64
 	var systemMemory uint64
+	var isOrtModel bool = false
+
+	if _, ok := ggml.container.(*containerORT); ok {
+		extmodel := strings.Replace(model, "blobs", "ort_cache", 1)
+		err := extractOrtModel(model, extmodel)
+		if err != nil {
+			return nil, err
+		}
+
+		fmt.Printf("Model: %s\n", model)
+		fmt.Printf("Extract Model: %s\n", extmodel)
+		model = extmodel
+		fmt.Printf("Model: %s\n", model)
+		isOrtModel = true
+	}
+
 	gpuCount := len(gpus)
 	if (len(gpus) == 1 && gpus[0].Library == "cpu") || opts.NumGPU == 0 {
 		// TODO evaluate system memory to see if we should block the load, or force an unload of another CPU runner
 
 		cpuRunner = serverForCpu()
 		gpuCount = 0
-		_, _, estimatedTotal = EstimateGPULayers(gpus, ggml, projectors, opts)
+		slog.Info("running on CPU")
+		if !isOrtModel {
+			_, _, estimatedTotal = EstimateGPULayers(gpus, ggml, projectors, opts)
+		}
 	} else {
 		if gpus[0].Library == "metal" {
 			memInfo, err := gpu.GetCPUMem()
@@ -285,6 +367,15 @@ func NewLlamaServer(gpus gpu.GpuInfoList, model string, ggml *GGML, adapters, pr
 		server := filepath.Join(dir, "ollama_llama_server")
 		if runtime.GOOS == "windows" {
 			server += ".exe"
+		}
+
+		if isOrtModel {
+			var isExist bool
+			server, isExist = os.LookupEnv("ORT_GENAI_SERVER")
+			if !isExist {
+				slog.Error("ORT_GENAI_SERVER not set")
+				return nil, errors.New("ORT_GENAI_SERVER not set")
+			}
 		}
 
 		// Detect tmp cleaners wiping out the file
@@ -661,6 +752,7 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 		return err
 	}
 	defer s.sem.Release(1)
+	slog.Info("llm completion request", "prompt", req.Prompt, "num_predict", req.Options.NumPredict)
 
 	// only allow maximum 10 "context shifts" to avoid infinite generation
 	if req.Options.NumPredict < 0 || req.Options.NumPredict > 10*s.options.NumCtx {

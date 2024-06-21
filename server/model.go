@@ -193,7 +193,7 @@ func parseFromFile(ctx context.Context, file *os.File, digest string, fn func(ap
 	}
 
 	switch contentType {
-	case "gguf", "ggla":
+	case "gguf", "ggla", "ort":
 		// noop
 	case "application/zip":
 		return parseFromZipFile(ctx, file, digest, fn)
